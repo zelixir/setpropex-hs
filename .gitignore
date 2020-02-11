@@ -1,3 +1,5 @@
 .stack-work/
 setpropex-hs.cabal
 *~
+*.hi
+*.o

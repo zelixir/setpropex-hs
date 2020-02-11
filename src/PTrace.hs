@@ -5,7 +5,6 @@ import           Foreign
 import           Foreign.C
 import           Control.Exception
 import           Foreign.Marshal.Alloc
-import           GHC.Word
 import           Helper
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Internal      as B
@@ -28,41 +27,39 @@ pTRACE_ATTACH = 16 :: TRACE_REQUEST
 pTRACE_DETACH = 17 :: TRACE_REQUEST
 pTRACE_SYSCALL = 24 :: TRACE_REQUEST
 
--- object_r_default_prop_s0
-
 foreign import ccall unsafe "ptrace" c_ptrace :: CInt -> CInt -> CLong -> Ptr a -> IO CLong
 
 
-ptrace :: TRACE_REQUEST -> PID -> RemoteAddress -> Ptr a -> IO Word
-ptrace req pid addr = fmap fromIntegral
+ptrace :: TRACE_REQUEST -> Process -> RemoteAddress -> Ptr a -> IO Word
+ptrace req (Process pid) addr = fmap fromIntegral
   . c_ptrace (fromIntegral req) (fromIntegral pid) (fromIntegral addr)
 
-ptrace_peekdata :: PID -> RemoteAddress -> IO Word
+ptrace_peekdata :: Process -> RemoteAddress -> IO Word
 ptrace_peekdata pid addr = ptrace pTRACE_PEEKDATA pid addr nullPtr
 
-ptrace_pokedata :: PID -> RemoteAddress -> Word -> IO ()
+ptrace_pokedata :: Process -> RemoteAddress -> Word -> IO ()
 ptrace_pokedata pid addr w = alloca $ \ptr -> do
   poke ptr w
   ptrace pTRACE_PEEKDATA pid addr ptr
   return ()
 
 with_process :: PID -> (Process -> IO r) -> IO r
-with_process p = bracket attach detach
+with_process (Process -> p) = bracket attach detach
  where
-  attach = ptrace pTRACE_ATTACH p 0 nullPtr >> return (Process p)
+  attach = ptrace pTRACE_ATTACH p 0 nullPtr >> return p
   detach _ = ptrace pTRACE_DETACH p 0 nullPtr
 
 peek_data :: forall  a . Storable a => Process -> RemoteAddress -> IO a
-peek_data (pid -> p) addr = do
+peek_data p addr = do
   (ptr, off, _) <- B.toForeignPtr <$> read_mem p addr (sizeOf (undefined :: a))
   withForeignPtr ptr (\p -> peekByteOff p off)
 
 poke_data :: forall  a . Storable a => Process -> RemoteAddress -> a -> IO ()
-poke_data (pid -> p) addr a = write_mem p addr
+poke_data p addr a = write_mem p addr
   $ B.unsafeCreate (sizeOf (undefined :: a)) (flip poke a . castPtr)
 
-
-read_mem :: PID -> RemoteAddress -> Int -> IO BS
+-- https://hackage.haskell.org/package/linux-ptrace-0.1.2/docs/src/System-Linux-Ptrace.html#peekBytes
+read_mem :: Process -> RemoteAddress -> Int -> IO BS
 read_mem _ _ 0 = return B.empty
 read_mem pid addr size =
   (B.take size . B.drop extraBytes . joinWords)
@@ -82,7 +79,7 @@ read_mem pid addr size =
 
 -- FIXME: Is it more efficient to keep /proc/<...>/mem open and write to that?
 --        Does the kernel even support that?
-write_mem :: PID -> RemoteAddress -> BS -> IO ()
+write_mem :: Process -> RemoteAddress -> BS -> IO ()
 write_mem pid addr bs = do
   s <- start
   e <- end

@@ -5,15 +5,20 @@ module Helper
   , module Data.List
   , module Data.Either
   , module Data.Functor
+  , module Data.Bifunctor
   , module Data.Function
+  , module Data.Foldable
   , module Data.String
   , module Data.Monoid
   , module Data.Tuple
   , module Data.Char
   , module Data.Bool
   , module System.Directory
+  , module System.Exit
+  , module System.Environment
   , module System.FilePath
   , module GHC.Generics
+  , module GHC.Word
   , module Control.Arrow
   , module Control.Monad
   , module Control.Monad.IO.Class
@@ -22,6 +27,8 @@ module Helper
 where
 
 import           System.Directory
+import           System.Exit
+import           System.Environment
 import           System.FilePath
 -- import           Data.Proxy
 import           Data.Maybe
@@ -31,13 +38,16 @@ import           Data.Tuple
 import           Data.Bool
 import           Data.Char
 import           Data.Functor
+import           Data.Bifunctor                 ( bimap )
 import           Data.Function
+import           Data.Foldable
 import           Data.String
 import           Data.Monoid
 import           Control.Arrow
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           GHC.Generics
+import           GHC.Word
 import           Debug.Trace             hiding ( trace )
 import qualified Data.ByteString.Lazy          as L
 import qualified Data.ByteString               as B
