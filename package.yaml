@@ -24,9 +24,7 @@ dependencies:
 - bytestring
 - directory
 - filepath
-- mtl
 - hspec
-
 
 library:
   source-dirs:         src

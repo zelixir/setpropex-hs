@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, TypeApplications, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns, TupleSections, TypeApplications, OverloadedStrings, ScopedTypeVariables, FlexibleContexts  #-}
 module Property where
 import           Helper
 import           System.Directory
@@ -7,8 +7,7 @@ import qualified Data.ByteString.Internal      as B
 import qualified Data.ByteString.Lazy          as L
 import           PTrace
 import           Numeric
-import           ByteStringReader
-
+import           State
 type Properties = (FilePath, BS)
 
 headerSize = 128
@@ -23,23 +22,34 @@ fromFile path = do
     else Just (path, L.toStrict $ L.drop 0x80 d)
 
 findProperty :: BS -> Properties -> Maybe (BS, Int)
-findProperty name = findProperty' names 0
-  where names = "" : B.splitWith (== fromIntegral (ord '.')) name
-
-findProperty' :: [BS] -> Int -> Properties -> Maybe (BS, Int)
-findProperty' [] x prop = undefined
-findProperty' (x : xs) offset (file, mem) | name == x && children == 0 = Just
-  (value, offset + 20 + namelen_align)
+findProperty name prop@(_, mem) = findProperty' names 0
  where
-  ([fromIntegral -> namelen, _propid, left, right, children :: Word32], s) =
-    bReadMany 5 (B.drop offset mem)
-  (name1, s') = B.splitAt namelen_align s
-  name = B.take namelen name1
-  value = undefined 
-  namelen_align =
-    uncurry (+) $ bimap (* 4) ((* 4) . signum) $ divMod (namelen + 1) 4
-  
+  names = "" : B.splitWith (== fromIntegral (ord '.')) name
 
+  findProperty' :: [BS] -> Int -> Maybe (BS, Int)
+  findProperty' []       x      = Nothing
+  findProperty' (x : xs) offset = flip evalState (B.drop offset mem) $ do
+    namelen  <- readi32l
+    _propid  <- readi32l
+    left     <- readi32l
+    right    <- readi32l
+    children <- readi32l
+    let namelen_align =
+          uncurry (+) $ bimap (* 4) ((* 4) . signum) $ divMod (namelen + 1) 4
+    let valueOffset = offset + 20 + namelen_align
+    name <- B.take namelen <$> state (B.splitAt namelen_align)
+    case (compare `on` (B.length &&& id)) x name of
+      EQ | xs == [] && children == 0 ->
+        Just . (, valueOffset) <$> (readi32b >>= state . B.splitAt)
+      EQ | children /= 0 -> return $ findProperty' xs children
+      LT | left /= 0     -> return $ findProperty' (x : xs) left
+      GT | right /= 0    -> return $ findProperty' (x : xs) right
+      _                  -> return Nothing
+
+readi32l, readi32b :: State BS Int
+readi32l = readi32 (foldr (\x acc -> acc * 256 + fromIntegral x) 0 . B.unpack)
+readi32b = readi32 (foldl' (\acc x -> acc * 256 + fromIntegral x) 0 . B.unpack)
+readi32 f = state $ first (fromIntegral . f) . B.splitAt 4
 
 findMemoryRegion :: FilePath -> IO Int
 findMemoryRegion = findMemoryRegion' "/proc/1/maps"

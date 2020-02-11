@@ -1,4 +1,0 @@
-[submodule "libraries/mtl"]
-	path = libraries/mtl
-	url = https://gitlab.haskell.org/ghc/packages/mtl.git
-	ignore = untracked
