@@ -14,4 +14,4 @@ main = hspec $ do
     it "find property" $ do
       let file = "test/__properties__"
       Just prop <- liftIO (fromFile file)
-      findProperty "ro.debuggable" prop `shouldBe` Just ("0", 0x100c - 0x80)
+      findProperty "ro.debuggable" prop `shouldBe` Just ("0", 0x100c)

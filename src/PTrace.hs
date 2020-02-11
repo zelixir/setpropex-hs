@@ -9,7 +9,7 @@ import           Helper
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Internal      as B
 type PID = Int
-type RemoteAddress = Int
+type RemoteAddress = Word
 type TRACE_REQUEST = Int
 newtype Process = Process { pid :: PID }
 
@@ -27,27 +27,26 @@ pTRACE_ATTACH = 16 :: TRACE_REQUEST
 pTRACE_DETACH = 17 :: TRACE_REQUEST
 pTRACE_SYSCALL = 24 :: TRACE_REQUEST
 
-foreign import ccall unsafe "ptrace" c_ptrace :: CInt -> CInt -> CLong -> Ptr a -> IO CLong
+foreign import ccall unsafe "ptrace" c_ptrace :: CInt -> CInt -> CLong -> CLong -> IO CLong
 
 
-ptrace :: TRACE_REQUEST -> Process -> RemoteAddress -> Ptr a -> IO Word
-ptrace req (Process pid) addr = fmap fromIntegral
-  . c_ptrace (fromIntegral req) (fromIntegral pid) (fromIntegral addr)
+ptrace :: TRACE_REQUEST -> Process -> RemoteAddress -> Word -> IO Word
+ptrace req (Process pid) addr =
+  fmap fromIntegral
+    . c_ptrace (fromIntegral req) (fromIntegral pid) (fromIntegral addr)
+    . fromIntegral
 
 ptrace_peekdata :: Process -> RemoteAddress -> IO Word
-ptrace_peekdata pid addr = ptrace pTRACE_PEEKDATA pid addr nullPtr
+ptrace_peekdata pid addr = ptrace pTRACE_PEEKDATA pid addr 0
 
 ptrace_pokedata :: Process -> RemoteAddress -> Word -> IO ()
-ptrace_pokedata pid addr w = alloca $ \ptr -> do
-  poke ptr w
-  ptrace pTRACE_PEEKDATA pid addr ptr
-  return ()
+ptrace_pokedata pid addr w = ptrace pTRACE_POKEDATA pid addr w >> return ()
 
 with_process :: PID -> (Process -> IO r) -> IO r
 with_process (Process -> p) = bracket attach detach
  where
-  attach = ptrace pTRACE_ATTACH p 0 nullPtr >> return p
-  detach _ = ptrace pTRACE_DETACH p 0 nullPtr
+  attach = ptrace pTRACE_ATTACH p 0 0 >> return p
+  detach _ = ptrace pTRACE_DETACH p 0 0
 
 peek_data :: forall  a . Storable a => Process -> RemoteAddress -> IO a
 peek_data p addr = do
@@ -89,7 +88,7 @@ write_mem pid addr bs = do
   wordSize    = sizeOf addr
   alignedAddr = addr .&. complement (fromIntegral wordSize - 1)
   startBytes  = fromIntegral $ addr - alignedAddr
-  endBytes    = -(size + startBytes) .&. complement (wordSize - 1)
+  endBytes    = mod size wordSize
   totalBytes  = size + startBytes + endBytes
   start       = read_mem pid alignedAddr startBytes
   end         = read_mem pid (alignedAddr + fromIntegral startBytes) endBytes
@@ -99,11 +98,8 @@ write_mem pid addr bs = do
     [alignedAddr, alignedAddr + fromIntegral wordSize .. alignedAddr
     + fromIntegral totalBytes
     - 1]
-  splitWords  = map extractWord . chunksOf wordSize
-  -- Assuming little-endian :O Could use pokeByteOff instead?
-  extractWord = B.foldl' (\n w -> n `shiftL` 8 .|. fromIntegral w) 0
-  doWrite     = sequence_ . zipWith (ptrace_pokedata pid) writePtrs . splitWords
-
+  splitWords = map extractWord . chunksOf wordSize
+  doWrite    = sequence_ . zipWith (ptrace_pokedata pid) writePtrs . splitWords
 
 chunksOf :: Int -> BS -> [BS]
 chunksOf n bs
